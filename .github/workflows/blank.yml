@@ -27,18 +27,39 @@ jobs:
       - name: Create Tunnel
         run: Start-Process Powershell -ArgumentList "-NoExit -Command '.\ngrok\ngrok.exe tcp 3389'"
         
-      - name: Connection Details
+      - name: Connection Details (with Retry)
         run: |
-          $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels
-          $address = $response.tunnels[0].public_url
-          Write-Host "=========================================="
-          Write-Host "RDP CONNECTION DETAILS"
-          Write-Host "=========================================="
-          Write-Host "Address:  $address"
-          Write-Host "Username: runneradmin"
-          Write-Host "Password: MySecurePassword123!"
-          Write-Host "=========================================="
-          Write-Host "Session will stay active for 6 hours."
+          Write-Host "Waiting for Ngrok to initialize..."
+          $maxRetries = 15
+          $retryCount = 0
+          $response = $null
+
+          while ($null -eq $response -and $retryCount -lt $maxRetries) {
+              try {
+                  $response = Invoke-RestMethod -Uri http://localhost:4040/api/tunnels -ErrorAction Stop
+              } catch {
+                  $retryCount++
+                  Start-Sleep -Seconds 3
+                  Write-Host "Retrying Ngrok connection ($retryCount/$maxRetries)..."
+              }
+          }
+
+          if ($null -ne $response) {
+              $address = $response.tunnels[0].public_url
+              # Remove 'tcp://' prefix if present for easier copying
+              $cleanAddress = $address -replace "tcp://", ""
+              
+              Write-Host "=========================================="
+              Write-Host "RDP CONNECTION DETAILS"
+              Write-Host "=========================================="
+              Write-Host "Address:  $cleanAddress"
+              Write-Host "Username: runneradmin"
+              Write-Host "Password: MySecurePassword123!"
+              Write-Host "=========================================="
+          } else {
+              Write-Error "Ngrok failed to start. Please check your NGROK_AUTH_TOKEN."
+              exit 1
+          }
 
       - name: Keep Alive (6 Hours)
         run: Start-Sleep -Seconds 21600
